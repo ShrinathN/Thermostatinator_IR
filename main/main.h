@@ -22,5 +22,6 @@
 #include "driver/adc.h"
 #include "driver/gpio.h"
 #include "driver/hw_timer.h"
+#include "driver/ir_tx.h"
 
 #endif

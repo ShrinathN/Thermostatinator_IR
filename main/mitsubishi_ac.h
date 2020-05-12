@@ -11,7 +11,7 @@
 #define MAC_ONE 390
 #define MAC_ZERO 1184
 
-#define MAC_ON_DELAY 12
+#define MAC_ON_DELAY 13
 #define MAC_OFF_DELAY 13
 #define MAC_PIN GPIO_NUM_4
 

@@ -1,6 +1,7 @@
 #include "main.h"
 #include "mitsubishi_ac.h"
 
+#define LOOKUP_TABLE_MIN 80
 // TEMPERATURE FOR 80 to 200 ADC RAW LOOKUP TABLE
 /*
       [21.69360918, 21.98809541, 22.2798558 , 22.5689536 , 22.85544988,
@@ -58,6 +59,7 @@ static const double temperature_lookup_table[120] = {
 	45.303, 45.466, 45.628, 45.790, 45.952, 46.113, 46.273, 46.433};
 
 static double temperature = 0.0;
+static uint8_t ac_currently_on = 0;
 
 //socket related variables
 static int listening_socket;
@@ -74,14 +76,26 @@ void temperature_correcting_task(void *arg)
 		if (temperature > 28)
 		{
 			ESP_LOGI(TAG, "Turning on AC!\n");
-			MAC_TransmitConfigStruct((uint8_t *)ON_SIGNAL, 11);
+			if (ac_currently_on == 0)
+			{
+				taskENTER_CRITICAL();
+				MAC_TransmitConfigStruct((uint8_t *)ON_SIGNAL, 11);
+				taskEXIT_CRITICAL();
+				ac_currently_on = 1;
+			}
 		}
 		else
 		{
 			ESP_LOGI(TAG, "Turning off AC!\n");
-			MAC_TransmitConfigStruct((uint8_t *)OFF_SIGNAL, 11);
+			if (ac_currently_on == 1)
+			{
+				taskENTER_CRITICAL();
+				MAC_TransmitConfigStruct((uint8_t *)OFF_SIGNAL, 11);
+				taskEXIT_CRITICAL();
+				ac_currently_on = 0;
+			}
 		}
-		vTaskDelay((1000) / portTICK_RATE_MS);
+		vTaskDelay((60 * 1000) / portTICK_RATE_MS);
 	}
 }
 
@@ -103,7 +117,7 @@ void temperature_reading_task(void *arg)
 			adc_reading += adc_data[counter];
 		}
 		adc_reading /= ADC_SAMPLES;
-		temperature = temperature_lookup_table[adc_reading - 80];
+		temperature = temperature_lookup_table[adc_reading - LOOKUP_TABLE_MIN];
 		ESP_LOGI(TAG, "Temperature -> %d -> %f!!\n", adc_reading, temperature);
 		vTaskDelay(1000 / portTICK_RATE_MS);
 	}
@@ -131,7 +145,7 @@ void acceptor_socket_task(void *arg)
 void listening_socket_task(void *arg)
 {
 	const char *TAG = "listening_socket_task";
-	ESP_LOGI(TAG, "Starting task!");
+	ESP_LOGI(TAG, "Starting task!\n");
 	char one = 1;
 	socklen_t siz = sizeof(info);
 	listening_socket = socket(AF_INET, SOCK_STREAM, 0);
@@ -167,7 +181,7 @@ void app_main()
 	static const char *TAG = "APP_MAIN";
 	ESP_LOGI(TAG, "MAIN APP STARTED!\n");
 	//gpio init
-	//setting
+	//setting status LED
 	gpio_config_t gp;
 	gp.mode = GPIO_MODE_OUTPUT_OD;
 	gp.pin_bit_mask = 1 << GPIO_NUM_16;
@@ -176,6 +190,7 @@ void app_main()
 	ESP_ERROR_CHECK(gpio_config(&gp));
 	ESP_ERROR_CHECK(gpio_set_level(GPIO_NUM_16, 1));
 
+	//initializing IR LED
 	MAC_GPIO_Init();
 
 	tcpip_adapter_init();
