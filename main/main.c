@@ -101,8 +101,6 @@ void temperature_correcting_task(void *arg)
 	}
 }
 
-static uint32_t next_event;
-
 void EXPERIMENTAL_TASK(void *arg)
 {
 	const char *TAG = "EXPERIMENTAL_TASK";
@@ -137,7 +135,7 @@ void temperature_reading_task(void *arg)
 		adc_reading /= ADC_SAMPLES;
 		temperature = temperature_lookup_table[adc_reading - LOOKUP_TABLE_MIN];
 		ESP_LOGI(TAG, "Temperature -> %d -> %f!!\n", adc_reading, temperature);
-		ESP_LOGI(TAG, "NEXT EVENT AT %d\n", next_event);
+
 		vTaskDelay(1000 / portTICK_RATE_MS);
 	}
 }
@@ -145,19 +143,24 @@ void temperature_reading_task(void *arg)
 void acceptor_socket_task(void *arg)
 {
 	const char *TAG = "acceptor_socket_task";
-	char buffer[100];
+	uint8_t buffer[30];
 	ESP_LOGI(TAG, "Running!\n");
-	int return_status;
+	int return_status, recv_len;
 	while (1)
 	{
 		return_status = send(accepting_socket, &adc_reading, sizeof(adc_reading), 0);
-		recv(accepting_socket, buffer, sizeof(buffer), MSG_DONTWAIT);
 		if (return_status < 0)
 		{
 			ESP_LOGI(TAG, "Error in sending! Exiting!\n");
 			shutdown(accepting_socket, 2);
 			shutdown(listening_socket, 2);
 			vTaskDelete(NULL);
+		}
+		recv_len = recv(accepting_socket, (void *)buffer, sizeof(buffer), MSG_DONTWAIT);
+		ESP_LOGI(TAG, "RECV->%d\n", recv_len);
+		if (recv_len > 0) //valid data
+		{
+			TIMING_CRITICAL(MAC_TransmitConfigStruct((uint8_t *)buffer, recv_len));
 		}
 		vTaskDelay(1000 / portTICK_RATE_MS);
 	}
@@ -233,7 +236,7 @@ void app_main()
 	ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
 	ESP_ERROR_CHECK(esp_wifi_start());
 
-	// xTaskCreate(temperature_reading_task, "temperature_reading_task", 2048, NULL, 10, NULL);
+	xTaskCreate(temperature_reading_task, "temperature_reading_task", 2048, NULL, 10, NULL);
 	xTaskCreate(EXPERIMENTAL_TASK, "EXPERIMENTAL_TASK", 2048, NULL, 10, NULL);
 	// xTaskCreate(temperature_correcting_task, "temperature_correcting_task", 2048, NULL, 10, NULL);
 }
