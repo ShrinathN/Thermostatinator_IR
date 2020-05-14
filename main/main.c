@@ -35,6 +35,12 @@
 #define PORT 8000
 #define ADC_SAMPLES 100
 
+//macros
+#define TIMING_CRITICAL(X) \
+	taskENTER_CRITICAL();  \
+	X;                     \
+	taskEXIT_CRITICAL()
+
 const uint8_t ON_SIGNAL[] = {0xb5, 0x8a, 0x3c, 0x9b, 0x64, 0x41, 0xbe, 0x0b, 0xf4, 0x10, 0xef};
 const uint8_t OFF_SIGNAL[] = {0xb5, 0x8a, 0x3c, 0x9b, 0x64, 0x41, 0xbe, 0x0b, 0xf4, 0x00, 0xff};
 
@@ -78,9 +84,7 @@ void temperature_correcting_task(void *arg)
 			ESP_LOGI(TAG, "Turning on AC!\n");
 			if (ac_currently_on == 0)
 			{
-				taskENTER_CRITICAL();
-				MAC_TransmitConfigStruct((uint8_t *)ON_SIGNAL, 11);
-				taskEXIT_CRITICAL();
+				TIMING_CRITICAL(MAC_TransmitConfigStruct((uint8_t *)ON_SIGNAL, 11));
 				ac_currently_on = 1;
 			}
 		}
@@ -89,13 +93,27 @@ void temperature_correcting_task(void *arg)
 			ESP_LOGI(TAG, "Turning off AC!\n");
 			if (ac_currently_on == 1)
 			{
-				taskENTER_CRITICAL();
-				MAC_TransmitConfigStruct((uint8_t *)OFF_SIGNAL, 11);
-				taskEXIT_CRITICAL();
+				TIMING_CRITICAL(MAC_TransmitConfigStruct((uint8_t *)OFF_SIGNAL, 11));
 				ac_currently_on = 0;
 			}
 		}
 		vTaskDelay((60 * 1000) / portTICK_RATE_MS);
+	}
+}
+
+static uint32_t next_event;
+
+void EXPERIMENTAL_TASK(void *arg)
+{
+	const char *TAG = "EXPERIMENTAL_TASK";
+	while (1)
+	{
+		ESP_LOGI(TAG, "Turning On AC\n");
+		TIMING_CRITICAL(MAC_TransmitConfigStruct((uint8_t *)ON_SIGNAL, sizeof(ON_SIGNAL))); //turn on
+		vTaskDelay((5 * 60 * 1000) / portTICK_RATE_MS);										//for 5 minutes
+		ESP_LOGI(TAG, "Turning Off AC\n");
+		TIMING_CRITICAL(MAC_TransmitConfigStruct((uint8_t *)OFF_SIGNAL, sizeof(OFF_SIGNAL))); //turn off
+		vTaskDelay((10 * 60 * 1000) / portTICK_RATE_MS);									  //for 30 minutes
 	}
 }
 
@@ -110,15 +128,16 @@ void temperature_reading_task(void *arg)
 	adc_init(&adc);
 	while (1)
 	{
-		adc_reading = 0;
+
 		adc_read_fast(adc_data, ADC_SAMPLES);
-		for (counter = 0; counter < ADC_SAMPLES; counter++)
+		for (counter = 0, adc_reading = 0; counter < ADC_SAMPLES; counter++)
 		{
-			adc_reading += adc_data[counter];
+			adc_reading += (uint32_t)adc_data[counter];
 		}
 		adc_reading /= ADC_SAMPLES;
 		temperature = temperature_lookup_table[adc_reading - LOOKUP_TABLE_MIN];
 		ESP_LOGI(TAG, "Temperature -> %d -> %f!!\n", adc_reading, temperature);
+		ESP_LOGI(TAG, "NEXT EVENT AT %d\n", next_event);
 		vTaskDelay(1000 / portTICK_RATE_MS);
 	}
 }
@@ -126,11 +145,13 @@ void temperature_reading_task(void *arg)
 void acceptor_socket_task(void *arg)
 {
 	const char *TAG = "acceptor_socket_task";
+	char buffer[100];
 	ESP_LOGI(TAG, "Running!\n");
 	int return_status;
 	while (1)
 	{
 		return_status = send(accepting_socket, &adc_reading, sizeof(adc_reading), 0);
+		recv(accepting_socket, buffer, sizeof(buffer), MSG_DONTWAIT);
 		if (return_status < 0)
 		{
 			ESP_LOGI(TAG, "Error in sending! Exiting!\n");
@@ -188,7 +209,7 @@ void app_main()
 	gp.pull_down_en = 0;
 	gp.pull_up_en = 0;
 	ESP_ERROR_CHECK(gpio_config(&gp));
-	ESP_ERROR_CHECK(gpio_set_level(GPIO_NUM_16, 1));
+	ESP_ERROR_CHECK(gpio_set_level(GPIO_NUM_16, 0));
 
 	//initializing IR LED
 	MAC_GPIO_Init();
@@ -212,6 +233,7 @@ void app_main()
 	ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
 	ESP_ERROR_CHECK(esp_wifi_start());
 
-	xTaskCreate(temperature_reading_task, "temperature_reading_task", 2048, NULL, 10, NULL);
-	xTaskCreate(temperature_correcting_task, "temperature_correcting_task", 2048, NULL, 10, NULL);
+	// xTaskCreate(temperature_reading_task, "temperature_reading_task", 2048, NULL, 10, NULL);
+	xTaskCreate(EXPERIMENTAL_TASK, "EXPERIMENTAL_TASK", 2048, NULL, 10, NULL);
+	// xTaskCreate(temperature_correcting_task, "temperature_correcting_task", 2048, NULL, 10, NULL);
 }
