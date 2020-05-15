@@ -13,6 +13,9 @@ array_resistance = []
 array_temp = []
 array_timestamp = []
 
+ON_SIGNAL = bytes([0xb5, 0x8a, 0x3c, 0x9b, 0x64, 0x41, 0xbe, 0x0b, 0xf4, 0x10, 0xef])
+OFF_SIGNAL = bytes([0xb5, 0x8a, 0x3c, 0x9b, 0x64, 0x41, 0xbe, 0x0b, 0xf4, 0x00, 0xff])
+
 beta = 3984
 
 FONT_SIZE_SMOL = 30
@@ -32,11 +35,11 @@ def savefunc():
 
 def turn_on():
 	global TO_SEND
-	TO_SEND = 1
+	TO_SEND = ON_SIGNAL
 
 def turn_off():
 	global TO_SEND
-	TO_SEND = 0
+	TO_SEND = OFF_SIGNAL
 
 def fix_endian(x):
 	return (x[3] << 24) | (x[2] << 16) | (x[1] << 8) | x[0]
@@ -50,7 +53,7 @@ def data_puller():
 	while(True):
 		data = s.recv(4)
 
-		if(type(TO_SEND) == type(int())):
+		if(type(TO_SEND) == type(bytes())):
 			s.send(TO_SEND)
 			print('Sending! ' + str(TO_SEND) + '\n')
 			TO_SEND = ''

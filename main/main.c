@@ -101,6 +101,8 @@ void temperature_correcting_task(void *arg)
 	}
 }
 
+
+static xTaskHandle EXPERIMENTAL_TASK_Handle = NULL;
 void EXPERIMENTAL_TASK(void *arg)
 {
 	const char *TAG = "EXPERIMENTAL_TASK";
@@ -136,7 +138,7 @@ void temperature_reading_task(void *arg)
 		temperature = temperature_lookup_table[adc_reading - LOOKUP_TABLE_MIN];
 		ESP_LOGI(TAG, "Temperature -> %d -> %f!!\n", adc_reading, temperature);
 
-		vTaskDelay(1000 / portTICK_RATE_MS);
+		vTaskDelay(100 / portTICK_RATE_MS);
 	}
 }
 
@@ -153,7 +155,7 @@ void acceptor_socket_task(void *arg)
 		{
 			ESP_LOGI(TAG, "Error in sending! Exiting!\n");
 			shutdown(accepting_socket, 2);
-			shutdown(listening_socket, 2);
+			// shutdown(listening_socket, 2);
 			vTaskDelete(NULL);
 		}
 		recv_len = recv(accepting_socket, (void *)buffer, sizeof(buffer), MSG_DONTWAIT);
@@ -162,7 +164,7 @@ void acceptor_socket_task(void *arg)
 		{
 			TIMING_CRITICAL(MAC_TransmitConfigStruct((uint8_t *)buffer, recv_len));
 		}
-		vTaskDelay(1000 / portTICK_RATE_MS);
+		vTaskDelay(200 / portTICK_RATE_MS);
 	}
 }
 
@@ -190,13 +192,19 @@ void evt_handler(void *event_handler_arg, esp_event_base_t event_base, int32_t e
 {
 	const char *TAG = "evt_handler";
 	ESP_LOGI(TAG, "Event Handler called!");
-	if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START)
+	if (event_base == WIFI_EVENT)
 	{
-		esp_wifi_connect();
+		if (event_id == WIFI_EVENT_STA_START || event_id == WIFI_EVENT_STA_DISCONNECTED)
+		{
+			esp_wifi_connect();
+		}
 	}
-	else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP)
+	else if (event_base == IP_EVENT)
 	{
-		xTaskCreate(listening_socket_task, "listening_socket_task", 2048, NULL, 10, NULL);
+		if (event_id == IP_EVENT_STA_GOT_IP)
+		{
+			xTaskCreate(listening_socket_task, "listening_socket_task", 2048, NULL, 10, NULL);
+		}
 	}
 }
 
@@ -237,6 +245,6 @@ void app_main()
 	ESP_ERROR_CHECK(esp_wifi_start());
 
 	xTaskCreate(temperature_reading_task, "temperature_reading_task", 2048, NULL, 10, NULL);
-	xTaskCreate(EXPERIMENTAL_TASK, "EXPERIMENTAL_TASK", 2048, NULL, 10, NULL);
+	xTaskCreate(EXPERIMENTAL_TASK, "EXPERIMENTAL_TASK", 2048, NULL, 10, &EXPERIMENTAL_TASK_Handle);
 	// xTaskCreate(temperature_correcting_task, "temperature_correcting_task", 2048, NULL, 10, NULL);
 }
