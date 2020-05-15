@@ -72,6 +72,7 @@ static int listening_socket;
 static int accepting_socket;
 static struct sockaddr_in info;
 static struct sockaddr_in remote_info;
+static uint8_t connected = 0;
 
 void temperature_correcting_task(void *arg)
 {
@@ -101,8 +102,6 @@ void temperature_correcting_task(void *arg)
 	}
 }
 
-
-static xTaskHandle EXPERIMENTAL_TASK_Handle = NULL;
 void EXPERIMENTAL_TASK(void *arg)
 {
 	const char *TAG = "EXPERIMENTAL_TASK";
@@ -142,12 +141,33 @@ void temperature_reading_task(void *arg)
 	}
 }
 
-void acceptor_socket_task(void *arg)
+
+void acceptor_socket_command_reader_task(void *arg)
 {
-	const char *TAG = "acceptor_socket_task";
-	uint8_t buffer[30];
+	const char *TAG = "acceptor_socket_command_reader_task";
 	ESP_LOGI(TAG, "Running!\n");
-	int return_status, recv_len;
+	uint8_t buffer[30], recv_len;
+	while (1)
+	{
+		recv_len = recv(accepting_socket, (void *)buffer, sizeof(buffer), MSG_WAITALL);
+		ESP_LOGI(TAG, "RECV->%d\n", recv_len);
+		if (recv_len > 0 && recv_len != 0xff) //valid data
+		{
+			TIMING_CRITICAL(MAC_TransmitConfigStruct((uint8_t *)buffer, recv_len));
+		}
+		else if(recv_len == 0xff || connected == 0) //disconnected
+		{
+			vTaskDelete(NULL);
+		}
+	}
+}
+
+void acceptor_socket_temp_sender_task(void *arg)
+{
+	const char *TAG = "acceptor_socket_temp_sender_task";
+	ESP_LOGI(TAG, "Running!\n");
+	xTaskCreate(acceptor_socket_command_reader_task, "acceptor_socket_command_reader_task", 2048, NULL, 10, NULL);
+	int return_status;
 	while (1)
 	{
 		return_status = send(accepting_socket, &adc_reading, sizeof(adc_reading), 0);
@@ -156,13 +176,8 @@ void acceptor_socket_task(void *arg)
 			ESP_LOGI(TAG, "Error in sending! Exiting!\n");
 			shutdown(accepting_socket, 2);
 			// shutdown(listening_socket, 2);
+			connected = 0;
 			vTaskDelete(NULL);
-		}
-		recv_len = recv(accepting_socket, (void *)buffer, sizeof(buffer), MSG_DONTWAIT);
-		ESP_LOGI(TAG, "RECV->%d\n", recv_len);
-		if (recv_len > 0) //valid data
-		{
-			TIMING_CRITICAL(MAC_TransmitConfigStruct((uint8_t *)buffer, recv_len));
 		}
 		vTaskDelay(200 / portTICK_RATE_MS);
 	}
@@ -184,7 +199,7 @@ void listening_socket_task(void *arg)
 	{
 		listen(listening_socket, 1);
 		accepting_socket = accept(listening_socket, (struct sockaddr *)&remote_info, &siz);
-		xTaskCreate(acceptor_socket_task, "acceptor_socket_task", 2048, NULL, 10, NULL);
+		xTaskCreate(acceptor_socket_temp_sender_task, "acceptor_socket_task", 2048, NULL, 10, NULL);
 	}
 }
 
@@ -245,6 +260,6 @@ void app_main()
 	ESP_ERROR_CHECK(esp_wifi_start());
 
 	xTaskCreate(temperature_reading_task, "temperature_reading_task", 2048, NULL, 10, NULL);
-	xTaskCreate(EXPERIMENTAL_TASK, "EXPERIMENTAL_TASK", 2048, NULL, 10, &EXPERIMENTAL_TASK_Handle);
+	xTaskCreate(EXPERIMENTAL_TASK, "EXPERIMENTAL_TASK", 2048, NULL, 10, NULL);
 	// xTaskCreate(temperature_correcting_task, "temperature_correcting_task", 2048, NULL, 10, NULL);
 }
