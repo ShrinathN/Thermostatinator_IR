@@ -17,6 +17,7 @@
 #include "esp_wifi.h"
 #include "esp_netif.h"
 #include "math.h"
+#include "esp_sleep.h"
 
 //drivers
 #include "driver/adc.h"

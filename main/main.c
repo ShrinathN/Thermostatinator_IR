@@ -1,6 +1,8 @@
 #include "main.h"
 #include "mitsubishi_ac.h"
 
+#define DEBUG
+
 #define LOOKUP_TABLE_MIN 80
 // TEMPERATURE FOR 80 to 200 ADC RAW LOOKUP TABLE
 /*
@@ -33,7 +35,7 @@
 #define AP_SSID "Shinu BSNL"
 #define AP_PASS "987654321"
 #define PORT 8000
-#define ADC_SAMPLES 100
+#define ADC_SAMPLES 50
 
 //macros
 #define TIMING_CRITICAL(X) \
@@ -47,7 +49,7 @@ const uint8_t OFF_SIGNAL[] = {0xb5, 0x8a, 0x3c, 0x9b, 0x64, 0x41, 0xbe, 0x0b, 0x
 //temperature related vars
 static uint16_t adc_data[ADC_SAMPLES];
 static uint32_t adc_reading = 0;
-static const double temperature_lookup_table[120] = {
+static const double temperature_lookup_table[] = {
 	21.694, 21.988, 22.280, 22.569, 22.855, 23.139, 23.421, 23.700,
 	23.977, 24.251, 24.523, 24.793, 25.060, 25.326, 25.589, 25.851,
 	26.110, 26.368, 26.623, 26.877, 27.128, 27.378, 27.626, 27.873,
@@ -119,7 +121,9 @@ void EXPERIMENTAL_TASK(void *arg)
 void temperature_reading_task(void *arg)
 {
 	const char *TAG = "temperature_reading_task";
-	ESP_LOGI(TAG, "Starting task!!\n");
+#ifdef DEBUG
+	ESP_LOGI(TAG, "Starting task!!");
+#endif
 	uint8_t counter;
 	adc_config_t adc;
 	adc.clk_div = 16; //160MHz / 16 = 10MHz
@@ -127,36 +131,52 @@ void temperature_reading_task(void *arg)
 	adc_init(&adc);
 	while (1)
 	{
-
 		adc_read_fast(adc_data, ADC_SAMPLES);
 		for (counter = 0, adc_reading = 0; counter < ADC_SAMPLES; counter++)
 		{
 			adc_reading += (uint32_t)adc_data[counter];
 		}
 		adc_reading /= ADC_SAMPLES;
+
+		//TODO: make limit dynamic, not hardcoded
+		if (adc_reading > 300)
+		{
+			adc_reading = LOOKUP_TABLE_MIN;
+		}
 		temperature = temperature_lookup_table[adc_reading - LOOKUP_TABLE_MIN];
-		ESP_LOGI(TAG, "Temperature -> %d -> %f!!\n", adc_reading, temperature);
+#ifdef DEBUG
+		ESP_LOGI(TAG, "Temperature -> %d -> %f!!", adc_reading, temperature);
+#endif
 
 		vTaskDelay(100 / portTICK_RATE_MS);
 	}
 }
 
-
 void acceptor_socket_command_reader_task(void *arg)
 {
 	const char *TAG = "acceptor_socket_command_reader_task";
-	ESP_LOGI(TAG, "Running!\n");
+#ifdef DEBUG
+	ESP_LOGI(TAG, "Running!");
+#endif
 	uint8_t buffer[30], recv_len;
 	while (1)
 	{
 		recv_len = recv(accepting_socket, (void *)buffer, sizeof(buffer), MSG_WAITALL);
-		ESP_LOGI(TAG, "RECV->%d\n", recv_len);
+#ifdef DEBUG
+		ESP_LOGI(TAG, "RECV->%d", recv_len);
+#endif
 		if (recv_len > 0 && recv_len != 0xff) //valid data
 		{
+#ifdef DEBUG
+			ESP_LOGI(TAG, "Sending message! %d", recv_len);
+#endif
 			TIMING_CRITICAL(MAC_TransmitConfigStruct((uint8_t *)buffer, recv_len));
 		}
-		else if(recv_len == 0xff || connected == 0) //disconnected
+		else if (connected == 0) //disconnected
 		{
+#ifdef DEBUG
+			ESP_LOGI(TAG, "Exiting!");
+#endif
 			vTaskDelete(NULL);
 		}
 	}
@@ -165,7 +185,9 @@ void acceptor_socket_command_reader_task(void *arg)
 void acceptor_socket_temp_sender_task(void *arg)
 {
 	const char *TAG = "acceptor_socket_temp_sender_task";
+#ifdef DEBUG
 	ESP_LOGI(TAG, "Running!\n");
+#endif
 	xTaskCreate(acceptor_socket_command_reader_task, "acceptor_socket_command_reader_task", 2048, NULL, 10, NULL);
 	int return_status;
 	while (1)
@@ -173,7 +195,9 @@ void acceptor_socket_temp_sender_task(void *arg)
 		return_status = send(accepting_socket, &adc_reading, sizeof(adc_reading), 0);
 		if (return_status < 0)
 		{
-			ESP_LOGI(TAG, "Error in sending! Exiting!\n");
+#ifdef DEBUG
+			ESP_LOGI(TAG, "Error in sending! Exiting! %d", return_status);
+#endif
 			shutdown(accepting_socket, 2);
 			// shutdown(listening_socket, 2);
 			connected = 0;
@@ -186,7 +210,9 @@ void acceptor_socket_temp_sender_task(void *arg)
 void listening_socket_task(void *arg)
 {
 	const char *TAG = "listening_socket_task";
+#ifdef DEBUG
 	ESP_LOGI(TAG, "Starting task!\n");
+#endif
 	char one = 1;
 	socklen_t siz = sizeof(info);
 	listening_socket = socket(AF_INET, SOCK_STREAM, 0);
@@ -197,7 +223,7 @@ void listening_socket_task(void *arg)
 	bind(listening_socket, (struct sockaddr *)&info, sizeof(info));
 	while (1)
 	{
-		listen(listening_socket, 1);
+		listen(listening_socket, 10);
 		accepting_socket = accept(listening_socket, (struct sockaddr *)&remote_info, &siz);
 		xTaskCreate(acceptor_socket_temp_sender_task, "acceptor_socket_task", 2048, NULL, 10, NULL);
 	}
@@ -206,12 +232,18 @@ void listening_socket_task(void *arg)
 void evt_handler(void *event_handler_arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
 	const char *TAG = "evt_handler";
-	ESP_LOGI(TAG, "Event Handler called!");
+#ifdef DEBUG
+	ESP_LOGI(TAG, "Event Handler called! event_base->%s event_id->%d\n", event_base, event_id);
+#endif
 	if (event_base == WIFI_EVENT)
 	{
-		if (event_id == WIFI_EVENT_STA_START || event_id == WIFI_EVENT_STA_DISCONNECTED)
+		if (event_id == WIFI_EVENT_STA_START)
 		{
 			esp_wifi_connect();
+		}
+		else if (event_id == WIFI_EVENT_STA_DISCONNECTED)
+		{
+			esp_wifi_set_ps(WIFI_PS_NONE);
 		}
 	}
 	else if (event_base == IP_EVENT)
@@ -226,7 +258,9 @@ void evt_handler(void *event_handler_arg, esp_event_base_t event_base, int32_t e
 void app_main()
 {
 	static const char *TAG = "APP_MAIN";
+#ifdef DEBUG
 	ESP_LOGI(TAG, "MAIN APP STARTED!\n");
+#endif
 	//gpio init
 	//setting status LED
 	gpio_config_t gp;
@@ -254,12 +288,13 @@ void app_main()
 			.ssid = AP_SSID,
 			.password = AP_PASS},
 	};
+	esp_wifi_set_ps(WIFI_PS_NONE);
 
 	ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
 	ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
 	ESP_ERROR_CHECK(esp_wifi_start());
 
 	xTaskCreate(temperature_reading_task, "temperature_reading_task", 2048, NULL, 10, NULL);
-	xTaskCreate(EXPERIMENTAL_TASK, "EXPERIMENTAL_TASK", 2048, NULL, 10, NULL);
+	// xTaskCreate(EXPERIMENTAL_TASK, "EXPERIMENTAL_TASK", 2048, NULL, 10, NULL);
 	// xTaskCreate(temperature_correcting_task, "temperature_correcting_task", 2048, NULL, 10, NULL);
 }

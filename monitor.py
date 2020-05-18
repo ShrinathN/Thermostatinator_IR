@@ -33,31 +33,24 @@ def savefunc():
 	})
 	df.to_csv('out.csv')
 
-def turn_on():
-	global TO_SEND
-	TO_SEND = ON_SIGNAL
-
-def turn_off():
-	global TO_SEND
-	TO_SEND = OFF_SIGNAL
-
 def fix_endian(x):
 	return (x[3] << 24) | (x[2] << 16) | (x[1] << 8) | x[0]
 
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR | socket.SO_REUSEPORT, 0)
+s.connect((sys.argv[1], 8000))
+
+def turn_on():
+	s.send(ON_SIGNAL)
+
+def turn_off():
+	s.send(OFF_SIGNAL)
+
 
 def data_puller():
-	global TO_SEND
-	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
-	s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR | socket.SO_REUSEPORT, 0)
-	s.connect((sys.argv[1], 8000))
+	global s
 	while(True):
 		data = s.recv(4)
-
-		if(type(TO_SEND) == type(bytes())):
-			s.send(TO_SEND)
-			print('Sending! ' + str(TO_SEND) + '\n')
-			TO_SEND = ''
-
 
 		raw_data = fix_endian(data)
 		volt_data = (raw_data / 1024) * 3.3
