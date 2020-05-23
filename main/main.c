@@ -70,8 +70,6 @@ static double temperature = 0.0;
 static uint8_t ac_currently_on = 0;
 
 //socket related variables
-static int listening_socket;
-static int accepting_socket;
 static struct sockaddr_in info;
 static struct sockaddr_in remote_info;
 static uint8_t connected = 0;
@@ -158,10 +156,12 @@ void acceptor_socket_command_reader_task(void *arg)
 #ifdef DEBUG
 	ESP_LOGI(TAG, "Running!");
 #endif
-	uint8_t buffer[30], recv_len;
+	int *acceptor_socket = (int *)arg;
+	uint8_t buffer[30];
+	int recv_len;
 	while (1)
 	{
-		recv_len = recv(accepting_socket, (void *)buffer, sizeof(buffer), MSG_WAITALL);
+		recv_len = recv(*acceptor_socket, (void *)buffer, sizeof(buffer), MSG_WAITALL);
 #ifdef DEBUG
 		ESP_LOGI(TAG, "RECV->%d", recv_len);
 #endif
@@ -188,19 +188,22 @@ void acceptor_socket_temp_sender_task(void *arg)
 #ifdef DEBUG
 	ESP_LOGI(TAG, "Running!\n");
 #endif
-	xTaskCreate(acceptor_socket_command_reader_task, "acceptor_socket_command_reader_task", 2048, NULL, 10, NULL);
-	int return_status;
+	int *acc_sock = (int *)arg;
+	xTaskCreate(acceptor_socket_command_reader_task, "acceptor_socket_command_reader_task", 2048, (void *)acc_sock, 10, NULL);
+	int return_status = 0;
 	while (1)
 	{
-		return_status = send(accepting_socket, &adc_reading, sizeof(adc_reading), 0);
+		return_status = send(*acc_sock, &adc_reading, sizeof(adc_reading), 0);
 		if (return_status < 0)
 		{
 #ifdef DEBUG
 			ESP_LOGI(TAG, "Error in sending! Exiting! %d", return_status);
 #endif
-			shutdown(accepting_socket, 2);
+			shutdown(*acc_sock, SHUT_RDWR);
+			close(*acc_sock);
 			// shutdown(listening_socket, 2);
 			connected = 0;
+			os_free(acc_sock);
 			vTaskDelete(NULL);
 		}
 		vTaskDelay(200 / portTICK_RATE_MS);
@@ -215,6 +218,7 @@ void listening_socket_task(void *arg)
 #endif
 	char one = 1;
 	socklen_t siz = sizeof(info);
+	int listening_socket;
 	listening_socket = socket(AF_INET, SOCK_STREAM, 0);
 	info.sin_addr.s_addr = htonl(INADDR_ANY);
 	info.sin_port = htons(PORT);
@@ -223,9 +227,10 @@ void listening_socket_task(void *arg)
 	bind(listening_socket, (struct sockaddr *)&info, sizeof(info));
 	while (1)
 	{
-		listen(listening_socket, 10);
-		accepting_socket = accept(listening_socket, (struct sockaddr *)&remote_info, &siz);
-		xTaskCreate(acceptor_socket_temp_sender_task, "acceptor_socket_task", 2048, NULL, 10, NULL);
+		int *accepting_socket = (int *)os_malloc(sizeof(int));
+		listen(listening_socket, 100);
+		*accepting_socket = accept(listening_socket, (struct sockaddr *)&remote_info, &siz);
+		xTaskCreate(acceptor_socket_temp_sender_task, "acceptor_socket_task", 2048, (void *)accepting_socket, 10, NULL);
 	}
 }
 
@@ -250,7 +255,7 @@ void evt_handler(void *event_handler_arg, esp_event_base_t event_base, int32_t e
 	{
 		if (event_id == IP_EVENT_STA_GOT_IP)
 		{
-			xTaskCreate(listening_socket_task, "listening_socket_task", 2048, NULL, 10, NULL);
+			xTaskCreate(listening_socket_task, "listening_socket_task", 4096, NULL, 10, NULL);
 		}
 	}
 }
@@ -294,7 +299,7 @@ void app_main()
 	ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
 	ESP_ERROR_CHECK(esp_wifi_start());
 
-	xTaskCreate(temperature_reading_task, "temperature_reading_task", 2048, NULL, 10, NULL);
+	// xTaskCreate(temperature_reading_task, "temperature_reading_task", 2048, NULL, 10, NULL);
 	// xTaskCreate(EXPERIMENTAL_TASK, "EXPERIMENTAL_TASK", 2048, NULL, 10, NULL);
 	// xTaskCreate(temperature_correcting_task, "temperature_correcting_task", 2048, NULL, 10, NULL);
 }

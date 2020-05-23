@@ -11,6 +11,7 @@
 #include "esp_event.h"
 #include "lwip/tcp.h"
 #include "lwip/err.h"
+#include "pthread.h"
 #include "lwip/sockets.h"
 #include "lwip/sys.h"
 #include <lwip/netdb.h>
