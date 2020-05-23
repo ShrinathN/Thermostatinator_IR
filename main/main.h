@@ -26,4 +26,9 @@
 #include "driver/hw_timer.h"
 #include "driver/ir_tx.h"
 
+#define AP_SSID "Shinu BSNL"
+#define AP_PASS "987654321"
+#define PORT 8000
+
+
 #endif

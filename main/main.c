@@ -3,6 +3,15 @@
 
 #define DEBUG
 
+
+#define ADC_SAMPLES 50
+
+//macros
+#define TIMING_CRITICAL(X) \
+	taskENTER_CRITICAL();  \
+	X;                     \
+	taskEXIT_CRITICAL()
+
 #define LOOKUP_TABLE_MIN 80
 // TEMPERATURE FOR 80 to 200 ADC RAW LOOKUP TABLE
 /*
@@ -32,16 +41,6 @@
        45.79021745, 45.95172044, 46.1127584 , 46.2733365 , 46.43345987]
 */
 
-#define AP_SSID "Shinu BSNL"
-#define AP_PASS "987654321"
-#define PORT 8000
-#define ADC_SAMPLES 50
-
-//macros
-#define TIMING_CRITICAL(X) \
-	taskENTER_CRITICAL();  \
-	X;                     \
-	taskEXIT_CRITICAL()
 
 const uint8_t ON_SIGNAL[] = {0xb5, 0x8a, 0x3c, 0x9b, 0x64, 0x41, 0xbe, 0x0b, 0xf4, 0x10, 0xef};
 const uint8_t OFF_SIGNAL[] = {0xb5, 0x8a, 0x3c, 0x9b, 0x64, 0x41, 0xbe, 0x0b, 0xf4, 0x00, 0xff};
